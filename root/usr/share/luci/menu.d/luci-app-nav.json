@@ -1,0 +1,12 @@
+{
+	"admin/services/nav": {
+		"title": "导航页配置",
+		"action": {
+			"type": "view",
+			"path": "nav/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-nav" ]
+		}
+	}
+}

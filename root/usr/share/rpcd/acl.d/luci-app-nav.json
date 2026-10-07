@@ -1,0 +1,17 @@
+{
+	"luci-app-nav": {
+		"description": "Navigate page configuration",
+		"read": {
+			"file": {
+				"/www/nav.html": [ "read" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/www/nav.html": [ "write" ],
+				"/sbin/uci": [ "exec" ],
+				"/bin/sh": [ "exec" ]
+			}
+		}
+	}
+}

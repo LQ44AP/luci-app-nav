@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>路由器导航</title>
+<style>
+  :root{
+    --bg1:#1e3c72;
+    --bg2:#2a5298;
+    --card:rgba(255,255,255,.12);
+    --card-hover:rgba(255,255,255,.22);
+    --text:#ffffff;
+    --sub:rgba(255,255,255,.7);
+    --shadow:0 8px 24px rgba(0,0,0,.25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;
+    font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--text);
+    background:linear-gradient(135deg,var(--bg1),var(--bg2));
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:48px 20px 32px;
+  }
+
+  /* 顶部标题 */
+  .header{text-align:center;margin-bottom:40px}
+  .logo{
+    width:64px;height:64px;margin:0 auto 16px;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.15);
+    border-radius:20px;
+    backdrop-filter:blur(8px);
+    box-shadow:var(--shadow);
+  }
+  .logo svg{width:34px;height:34px;stroke:#fff;fill:none;stroke-width:2}
+  .header h1{font-size:26px;font-weight:600;letter-spacing:.5px}
+  .header p{margin-top:8px;font-size:14px;color:var(--sub)}
+
+  /* 卡片网格 */
+  .grid{
+    width:100%;
+    max-width:760px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+    gap:16px;
+  }
+  .card{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:18px;
+    background:var(--card);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:16px;
+    text-decoration:none;
+    color:var(--text);
+    backdrop-filter:blur(10px);
+    transition:transform .2s ease,background .2s ease,box-shadow .2s ease;
+  }
+  .card:hover{
+    transform:translateY(-3px);
+    background:var(--card-hover);
+    box-shadow:var(--shadow);
+  }
+  .card .icon{
+    flex:0 0 44px;
+    height:44px;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.18);
+    border-radius:12px;
+    font-size:20px;
+  }
+  .card .info{min-width:0}
+  .card .info strong{
+    display:block;
+    font-size:15px;
+    font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .info span{
+    display:block;
+    margin-top:2px;
+    font-size:12px;
+    color:var(--sub);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  /* 主入口高亮卡片 */
+  .card.primary{
+    grid-column:1 / -1;
+    background:rgba(255,255,255,.2);
+    border-color:rgba(255,255,255,.35);
+  }
+
+  footer{
+    margin-top:36px;
+    font-size:12px;
+    color:var(--sub);
+    text-align:center;
+  }
+
+  @media (max-width:480px){
+    body{padding:32px 14px}
+    .header h1{font-size:22px}
+    .grid{grid-template-columns:1fr 1fr;gap:12px}
+    .card{flex-direction:column;text-align:center;padding:16px 10px;gap:10px}
+    .card.primary{flex-direction:row;text-align:left}
+  }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+    </div>
+    <h1 id="siteTitle"></h1>
+    <p id="siteSub"></p>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>OpenWrt Router Portal</footer>
+
+<!-- ↓↓↓ 导航数据块：LuCI 配置页只改这一段 ↓↓↓ -->
+<script id="nav-data" type="application/json">
+{
+  "title": "路由器控制台",
+  "subtitle": "选择要进入的服务",
+  "items": [
+    {
+      "icon": "🧭",
+      "title": "OpenWrt 管理后台",
+      "desc": "LuCI · 系统设置与状态",
+      "url": "/cgi-bin/luci",
+      "primary": true
+    },
+    {
+      "icon": "📊",
+      "title": "监控面板",
+      "desc": "端口 9090",
+      "url": "http://192.168.1.1:9090"
+    },
+    {
+      "icon": "🐳",
+      "title": "容器服务",
+      "desc": "端口 3000",
+      "url": "http://192.168.1.1:3000"
+    },
+    {
+      "icon": "📁",
+      "title": "文件共享",
+      "desc": "端口 8080",
+      "url": "http://192.168.1.1:8080"
+    },
+    {
+      "icon": "🎬",
+      "title": "媒体库",
+      "desc": "端口 5244",
+      "url": "http://192.168.1.1:5244"
+    }
+  ]
+}
+</script>
+<!-- ↑↑↑ 导航数据块 ↑↑↑ -->
+
+<script>
+(function(){
+  var data;
+  try {
+    data = JSON.parse(document.getElementById('nav-data').textContent);
+  } catch (e) {
+    data = { title:'路由器导航', subtitle:'', items:[] };
+  }
+
+  function safeUrl(u){
+    u = (u || '').trim();
+    return /^(https?:\/\/|\/)/i.test(u) ? u : '#';
+  }
+
+  document.title = data.title || '路由器导航';
+  document.getElementById('siteTitle').textContent = data.title || '';
+
+  var sub = document.getElementById('siteSub');
+  if (data.subtitle) sub.textContent = data.subtitle;
+  else sub.style.display = 'none';
+
+  var grid = document.getElementById('grid');
+  (data.items || []).forEach(function(it){
+    var a = document.createElement('a');
+    a.className = 'card' + (it.primary ? ' primary' : '');
+    a.href = safeUrl(it.url);
+    if (!/^\//.test(it.url)) { a.target = '_blank'; a.rel = 'noopener'; }
+
+    var icon = document.createElement('div');
+    icon.className = 'icon';
+    icon.textContent = it.icon || '🔗';
+
+    var info = document.createElement('div');
+    info.className = 'info';
+    var s = document.createElement('strong');
+    s.textContent = it.title || '未命名';
+    info.appendChild(s);
+    if (it.desc) {
+      var d = document.createElement('span');
+      d.textContent = it.desc;
+      info.appendChild(d);
+    }
+
+    a.appendChild(icon);
+    a.appendChild(info);
+    grid.appendChild(a);
+  });
+})();
+</script>
+</body>
+</html>
