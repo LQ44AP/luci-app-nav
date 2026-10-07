@@ -1,0 +1,150 @@
+name: Build OpenWrt luci-app-nav
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+
+env:
+  PKG_NAME: luci-app-nav
+
+jobs:
+  build:
+    name: Build ${{ matrix.version }} / ${{ matrix.arch.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [23.05.6, 25.12.5]
+        arch:
+          # - { name: mipsel_24kc, target: ramips, subtarget: mt7621 }
+          # - { name: mips_24kc, target: ath79, subtarget: generic }
+          - { name: x86_64, target: x86, subtarget: 64 }
+          # - { name: aarch64_generic, target: rockchip, subtarget: armv8 }
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          path: package-src
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev gawk git gettext \
+            libssl-dev xsltproc wget unzip qemu-utils python3 file zstd tar rsync
+
+      - name: Set version-specific variables
+        id: vars
+        run: |
+          VERSION="${{ matrix.version }}"
+          if [[ "$VERSION" =~ ^25\. ]] || [[ "$VERSION" =~ ^main ]]; then
+            echo "suffix=apk" >> $GITHUB_OUTPUT
+            echo "ext=zst" >> $GITHUB_OUTPUT
+            echo "sdk_pattern=openwrt-sdk-*.tar.zst" >> $GITHUB_OUTPUT
+          else
+            echo "suffix=ipk" >> $GITHUB_OUTPUT
+            echo "ext=xz" >> $GITHUB_OUTPUT
+            echo "sdk_pattern=openwrt-sdk-*.tar.xz" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download and Setup SDK
+        run: |
+          VERSION="${{ matrix.version }}"
+          TARGET="${{ matrix.arch.target }}"
+          SUBTARGET="${{ matrix.arch.subtarget }}"
+          SDK_BASE="https://downloads.openwrt.org/releases/${VERSION}/targets/${TARGET}/${SUBTARGET}/"
+          PATTERN="${{ steps.vars.outputs.sdk_pattern }}"
+
+          wget -nv -r -l1 -nd -A "$PATTERN" -e robots=off "$SDK_BASE" || true
+          SDK_FILE=$(ls $PATTERN 2>/dev/null | head -n 1)
+
+          if [ -z "$SDK_FILE" ]; then
+            echo "::error::No SDK file found at $SDK_BASE"
+            exit 1
+          fi
+          echo "找到 SDK: $SDK_FILE"
+
+          EXT="${{ steps.vars.outputs.ext }}"
+          if [ "$EXT" = "xz" ]; then
+            tar -xJf "$SDK_FILE"
+          elif [ "$EXT" = "zst" ]; then
+            tar --zstd -xf "$SDK_FILE"
+          fi
+
+          SDK_DIR=$(find . -maxdepth 1 -type d -name "openwrt-sdk-*" | head -n 1)
+          if [ -z "$SDK_DIR" ]; then
+            echo "::error::Failed to extract SDK"
+            exit 1
+          fi
+          mv "$SDK_DIR" openwrt-sdk
+          echo "SDK 已就绪: $(pwd)/openwrt-sdk"
+
+      - name: Update feeds
+        run: |
+          cd openwrt-sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy package source into SDK
+        run: |
+          cd openwrt-sdk
+          mkdir -p package/$PKG_NAME
+          rsync -a --exclude='.git' --exclude='.github' \
+            --exclude='*.ipk' --exclude='*.apk' \
+            --exclude='build-*.log' \
+            ${{ github.workspace }}/package-src/ package/$PKG_NAME/
+
+          echo "包内文件:"
+          find package/$PKG_NAME -type f
+          echo ""
+
+      - name: Configure build
+        run: |
+          cd openwrt-sdk
+          ./scripts/feeds update -i
+          ./scripts/feeds install -a
+          echo "CONFIG_PACKAGE_${PKG_NAME}=m" >> .config
+          make defconfig
+
+      - name: Build package
+        run: |
+          cd openwrt-sdk
+          make package/$PKG_NAME/compile V=s -j1
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p ${{ github.workspace }}/output
+          cd openwrt-sdk
+
+          SUFFIX="${{ steps.vars.outputs.suffix }}"
+          echo "正在搜集 ${PKG_NAME} 编译产物 (.${SUFFIX})..."
+
+          # 查找属于该包的安装包文件
+          find bin/ -type f -name "${PKG_NAME}*.${SUFFIX}" -exec cp -v {} ${{ github.workspace }}/output/ \;
+
+          echo "=== 最终收集到的产物列表 ==="
+          ls -la ${{ github.workspace }}/output/
+
+          # 检查 output 目录是否为空
+          if [ -z "$(ls -A ${{ github.workspace }}/output 2>/dev/null)" ]; then
+            echo "::error::未找到 ${PKG_NAME} 的 .${SUFFIX} 文件！请检查上一步编译日志。"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG_NAME }}-${{ matrix.version }}-${{ matrix.arch.name }}-${{ steps.vars.outputs.suffix }}
+          path: ${{ github.workspace }}/output/*
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Publish to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ github.workspace }}/output/*
+          fail_on_unmatched_files: true
